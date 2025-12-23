@@ -1,0 +1,12 @@
+/* Global reset / shared tokens */
+* {
+  box-sizing: border-box;
+}
+
+a {
+  text-decoration: none;
+}
+
+p {
+  line-height: 1.6;
+}
