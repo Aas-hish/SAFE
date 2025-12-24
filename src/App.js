@@ -6,7 +6,10 @@ import './App.css';
 import { auth, db } from './firebase';
 import Login from './pages/Login/Login';
 import Signup from './pages/Signup/Signup';
-import Home from './pages/Home/Home';
+import Dashboard from './pages/Dashboard/Dashboard';
+import Assessment from './pages/Assessment/Assessment';
+import AssessmentDashboard from './pages/AssessmentDashboard/AssessmentDashboard';
+import ScoreDashboard from './pages/ScoreDashboard/ScoreDashboard';
 
 function App() {
   const [user, setUser] = useState(undefined);
@@ -59,7 +62,25 @@ function App() {
         <Route
           path="/"
           element={(
-            user ? <Home user={user} /> : <Navigate to="/login" replace />
+            user ? <Dashboard user={user} /> : <Navigate to="/login" replace />
+          )}
+        />
+        <Route
+          path="/assessment"
+          element={(
+            user ? <Assessment user={user} /> : <Navigate to="/login" replace />
+          )}
+        />
+        <Route
+          path="/assessment-dashboard"
+          element={(
+            user ? <AssessmentDashboard user={user} /> : <Navigate to="/login" replace />
+          )}
+        />
+        <Route
+          path="/score-dashboard/:collectionName/:assessmentId"
+          element={(
+            user ? <ScoreDashboard user={user} /> : <Navigate to="/login" replace />
           )}
         />
         <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />

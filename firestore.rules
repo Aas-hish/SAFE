@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // User profile docs
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // User activities subcollection
+      match /activities/{activityId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+
+        allow create, update, delete: if request.auth != null
+          && request.auth.uid == userId               // caller owns the doc
+          && request.resource.data.uid == userId      // enforce stored uid
+          && request.resource.data.answers is map
+          && request.resource.data.userLabel is string;
+      }
+      
+      // Assessments subcollections - dynamic pattern: assessments_{cityname}
+      // This catches all subcollections except 'activities' (which is handled above)
+      // Validates assessment structure by checking for assessment-specific fields
+      match /{subcollection}/{assessmentId} {
+        // Allow read if user owns the document (createdBy matches userId)
+        // Note: This will only match if 'activities' rule above didn't match
+        allow read: if request.auth != null 
+          && request.auth.uid == userId
+          && resource.data.createdBy == userId;
+        
+        // Allow create for assessments with required fields
+        allow create: if request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.createdBy == userId
+          && request.resource.data.respondentName is string
+          && request.resource.data.organisation is string
+          && request.resource.data.city is string
+          && request.resource.data.borough is string
+          && request.resource.data.ward is string
+          && request.resource.data.createdAt is timestamp
+          && request.resource.data.status is string;
+        
+        // Allow update if user owns the document
+        allow update: if request.auth != null
+          && request.auth.uid == userId
+          && resource.data.createdBy == userId;
+        
+        // Allow delete if user owns the document
+        allow delete: if request.auth != null
+          && request.auth.uid == userId
+          && resource.data.createdBy == userId;
+      }
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
