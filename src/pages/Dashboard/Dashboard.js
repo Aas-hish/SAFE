@@ -153,14 +153,7 @@ const Dashboard = ({ user }) => {
                 </button>
               </div>
 
-              <div className="action-card disabled">
-                <div className="action-icon">📈</div>
-                <h3>Analytics</h3>
-                <p>Unlock deeper insights, trends, and benchmarking reports.</p>
-                <button type="button" className="action-button" disabled>
-                  Coming Soon
-                </button>
-              </div>
+              
             </div>
           </section>
         </div>

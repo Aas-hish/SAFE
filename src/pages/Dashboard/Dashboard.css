@@ -191,8 +191,8 @@
 }
 
 .dashboard-main {
-  flex: 1;
-  padding: 40px 32px;
+  flex: 0;
+  padding: 10px 20px;
   max-width: 1400px;
   width: 100%;
   margin: 0 auto;
