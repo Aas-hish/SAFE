@@ -535,7 +535,7 @@
 
 .assessment-card-meta {
   font-size: 13px;
-  color: #000;
+  color: #6b7280;
 }
 
 .assessment-card-body {
@@ -557,13 +557,13 @@
 
 .assessment-info-row .info-label {
   font-size: 13px;
-  color: #000000; 
+  color: #000000;
   font-weight: 500;
 }
 
 .assessment-info-row .info-value {
   font-size: 13px;
-  color: #000000; 
+  color: #000000;
   font-weight: 600;
   text-align: right;
   max-width: 60%;
@@ -587,7 +587,7 @@
 
 .progress-label span:first-child {
   font-size: 13px;
-  color: #000000;
+  color: #6b7280;
   font-weight: 500;
 }
 

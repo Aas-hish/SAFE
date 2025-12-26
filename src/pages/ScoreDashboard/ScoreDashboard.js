@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../../firebase";
 import {
   calculateScoresFromState,
   calculateCompletionFromState,
@@ -9,8 +9,8 @@ import {
   getPerformanceCategory,
   getCriticalMetrics,
   generateInsights,
-} from '../../scoring';
-import './ScoreDashboard.css';
+} from "../../scoring";
+import "./ScoreDashboard.css";
 
 const ScoreDashboard = ({ user }) => {
   const navigate = useNavigate();
@@ -25,10 +25,9 @@ const ScoreDashboard = ({ user }) => {
     const fetchAssessment = async () => {
       try {
         if (!user || !user.uid) return;
-        // Use collectionName from URL params (handles both new 'assessments' and old city-specific collections)
         const assessmentRef = doc(
           db,
-          'users',
+          "users",
           user.uid,
           collectionName,
           assessmentId
@@ -57,8 +56,7 @@ const ScoreDashboard = ({ user }) => {
             : null
         );
       } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Error loading assessment for score dashboard:', err);
+        console.error("Error loading assessment for score dashboard:", err);
       } finally {
         setLoading(false);
       }
@@ -91,82 +89,176 @@ const ScoreDashboard = ({ user }) => {
     if (!computed || !chartRef.current) return;
     const { scores } = computed;
     const canvas = chartRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     const { Chart } = window;
-    if (!Chart) return;
+    if (!Chart) {
+      console.error("Chart.js not loaded");
+      return;
+    }
 
+    // Destroy previous chart instance if exists
     if (chartInstanceRef.current) {
       chartInstanceRef.current.destroy();
     }
 
     const labels = Object.keys(scores.dimensions);
     const data = Object.values(scores.dimensions).map((d) => d.score);
+    
+    // Create gradient for bars
+    const createGradient = () => {
+      const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.8)');
+      gradient.addColorStop(1, 'rgba(139, 92, 246, 0.4)');
+      return gradient;
+    };
+
+    // Create hover gradient
+    const createHoverGradient = () => {
+      const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+      gradient.addColorStop(0, 'rgba(139, 92, 246, 1)');
+      gradient.addColorStop(1, 'rgba(139, 92, 246, 0.6)');
+      return gradient;
+    };
 
     chartInstanceRef.current = new Chart(ctx, {
-      type: 'bar',
+      type: "bar",
       data: {
         labels: labels.map((l) =>
-          l.length > 35 ? `${l.substring(0, 35)}...` : l
+          l.length > 20 ? `${l.substring(0, 20)}...` : l
         ),
         datasets: [
           {
-            label: 'Dimension Score',
+            label: "Dimension Score",
             data,
-            backgroundColor: 'rgba(107, 70, 193, 0.8)',
-            borderColor: 'rgba(107, 70, 193, 1)',
-            borderWidth: 2,
+            backgroundColor: createGradient(),
+            borderColor: '#7c3aed',
+            borderWidth: 1,
+            borderRadius: 8,
+            hoverBackgroundColor: createHoverGradient(),
+            hoverBorderColor: '#6d28d9',
+            hoverBorderWidth: 2,
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: {
+          duration: 1000,
+          easing: 'easeOutQuart'
+        },
         scales: {
           y: {
             beginAtZero: true,
             max: 5,
-            ticks: {
-              callback: (value) => `${value}/5`,
+            grid: {
+              color: 'rgba(226, 232, 240, 0.3)',
+              drawBorder: false,
             },
+            ticks: {
+              color: "#64748b",
+              font: {
+                size: 12,
+                family: "'Inter', sans-serif"
+              },
+              callback: (value) => `${value}/5`,
+              padding: 8,
+            },
+            border: {
+              display: false,
+            }
+          },
+          x: {
+            grid: {
+              display: false,
+            },
+            ticks: {
+              color: "#475569",
+              font: {
+                size: 12,
+                family: "'Inter', sans-serif",
+                weight: 500
+              },
+              maxRotation: 45,
+              minRotation: 45,
+            },
+            border: {
+              display: false,
+            }
           },
         },
         plugins: {
           legend: {
             display: false,
           },
-          title: {
-            display: true,
-            text: 'Performance Across All Dimensions',
-            font: {
-              size: 16,
-            },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            titleColor: '#f8fafc',
+            bodyColor: '#f8fafc',
+            borderColor: '#475569',
+            borderWidth: 1,
+            cornerRadius: 8,
+            padding: 12,
+            displayColors: false,
+            callbacks: {
+              label: function(context) {
+                const label = labels[context.dataIndex] || '';
+                const fullLabel = label.length > 30 ? `${label.substring(0, 30)}...` : label;
+                return `${fullLabel}: ${context.parsed.y.toFixed(2)}/5`;
+              },
+              title: function() {
+                return '';
+              }
+            }
           },
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index',
         },
       },
     });
+
+    // Cleanup function
+    return () => {
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.destroy();
+      }
+    };
   }, [computed]);
 
   const formatDate = (date) => {
-    if (!date) return 'N/A';
+    if (!date) return "N/A";
     try {
       const d = date.toDate ? date.toDate() : new Date(date);
-      if (Number.isNaN(d.getTime())) return 'N/A';
-      return d.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+      if (Number.isNaN(d.getTime())) return "N/A";
+      return d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
       });
     } catch (e) {
-      return 'N/A';
+      return "N/A";
     }
+  };
+
+  // Add custom header CSS styles
+  const headerStyles = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '24px 32px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+    marginBottom: '24px',
   };
 
   if (loading) {
     return (
       <div className="score-dashboard-loading">
-        Loading score dashboard...
+        <div className="loading-spinner"></div>
+        <p>Loading assessment results...</p>
       </div>
     );
   }
@@ -174,7 +266,10 @@ const ScoreDashboard = ({ user }) => {
   if (!appState || !computed) {
     return (
       <div className="score-dashboard-loading">
-        No assessment results found.
+        <p>No assessment results found.</p>
+        <button className="btn-back-home" onClick={() => navigate("/")}>
+          Return to Home
+        </button>
       </div>
     );
   }
@@ -199,17 +294,21 @@ const ScoreDashboard = ({ user }) => {
   const bottom3Dims = dimScores.slice(-3).reverse();
 
   const getInsightIcon = (title) => {
-    if (!title) return '💡';
-    if (title.toLowerCase().includes('overall')) return '📊';
-    if (title.toLowerCase().includes('gap')) return '🎯';
-    if (title.toLowerCase().includes('critical')) return '🚨';
-    if (title.toLowerCase().includes('completion')) return '✅';
-    if (title.toLowerCase().includes('strength')) return '🌟';
-    return '💡';
+    if (!title) return "💡";
+    const lowerTitle = title.toLowerCase();
+    if (lowerTitle.includes("overall")) return "📊";
+    if (lowerTitle.includes("gap") || lowerTitle.includes("priority")) return "🎯";
+    if (lowerTitle.includes("critical") || lowerTitle.includes("urgent")) return "🚨";
+    if (lowerTitle.includes("completion") || lowerTitle.includes("progress")) return "✅";
+    if (lowerTitle.includes("strength") || lowerTitle.includes("strong")) return "🌟";
+    if (lowerTitle.includes("improve") || lowerTitle.includes("weak")) return "📉";
+    if (lowerTitle.includes("recommend") || lowerTitle.includes("action")) return "📋";
+    return "💡";
   };
 
   return (
     <div className="score-dashboard">
+      {/* Header Section */}
       <div className="dashboard-header">
         <div className="header-left">
           <div className="logo-container">
@@ -221,8 +320,8 @@ const ScoreDashboard = ({ user }) => {
                   width="32"
                   height="36"
                   rx="2"
-                  fill="#3b82f6"
-                  stroke="#2563eb"
+                  fill="#8b5cf6"
+                  stroke="#7c3aed"
                   strokeWidth="2"
                 />
                 <line
@@ -257,10 +356,7 @@ const ScoreDashboard = ({ user }) => {
             <div className="logo-text">
               <div className="logo-title">SAFE</div>
               <div className="logo-subtitle">
-                Smart Age-Friendliness Evaluation Platform
-              </div>
-              <div className="logo-lab">
-                Future Cities and Assistive Technology Lab
+                Smart Age-Friendliness Evaluation
               </div>
             </div>
           </div>
@@ -271,100 +367,103 @@ const ScoreDashboard = ({ user }) => {
             <div className="info-item">
               <span className="info-label">Respondent:</span>
               <span className="info-value">
-                {meta?.respondentName || 'N/A'}
+                {meta?.respondentName || "N/A"}
               </span>
             </div>
             <div className="info-item">
               <span className="info-label">Organization:</span>
-              <span className="info-value">{meta?.organisation || 'N/A'}</span>
+              <span className="info-value">{meta?.organisation || "N/A"}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Location:</span>
               <span className="info-value">
                 {[meta?.city, meta?.borough, meta?.ward]
                   .filter(Boolean)
-                  .join(', ') || 'N/A'}
+                  .join(", ") || "N/A"}
               </span>
             </div>
             <div className="info-item created">
               <span className="info-label">Created:</span>
-              <span className="info-value">
-                {formatDate(meta?.createdAt)}
-              </span>
+              <span className="info-value">{formatDate(meta?.createdAt)}</span>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Main Content */}
       <div className="dashboard-content">
-        <div className="assessment-dashboard-main score-dashboard-main">
-          <div className="bg-white rounded-xl p-6 mb-6 shadow-lg score-hero-card">
-            <h2 className="text-purple-600 text-3xl font-bold mb-5">
-              📊 SAFE Assessment Dashboard
-            </h2>
-            <p className="mt-3">
-              <strong>Assessment Date:</strong> {formatDate(meta?.createdAt)}
+        <div className="score-dashboard-main">
+          {/* Hero Section */}
+          <div className="score-hero-card">
+            <h2 className="dashboard-title">Assessment Results</h2>
+            <p className="dashboard-subtitle">
+              Comprehensive analysis of your age-friendliness assessment
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-10 score-summary-grid">
-            <div className="bg-gradient-to-r from-purple-600 to-blue-500 text-white p-6 rounded-xl shadow-lg score-summary-card">
-              <div className="text-lg opacity-90 mb-2">Overall Score</div>
-              <div className="text-5xl font-bold mb-2">
-                {scores.overall.toFixed(2)}/5
+          {/* Summary Cards */}
+          <div className="score-summary-grid">
+            <div className="score-summary-card">
+              <div className="summary-label">Overall Score</div>
+              <div className="summary-value">{scores.overall.toFixed(1)}/5</div>
+              <div className="summary-percentage">
+                {((scores.overall / 5) * 100).toFixed(0)}%
               </div>
-              <div className="text-lg opacity-90 mb-2">
-                {((scores.overall / 5) * 100).toFixed(1)}%
-              </div>
-              <span
-                className={`performance-badge ${performanceCategory.class} inline-block px-4 py-2 rounded-full text-sm font-semibold`}
-              >
+              <div className={`performance-badge ${performanceCategory.class}`}>
                 {performanceCategory.name}
-              </span>
-            </div>
-
-            <div className="bg-gradient-to-r from-purple-600 to-blue-500 text-white p-6 rounded-xl shadow-lg score-summary-card">
-              <div className="text-lg opacity-90 mb-2">Metrics Assessed</div>
-              <div className="text-5xl font-bold mb-2">{nonZeroMetrics}</div>
-              <div className="text-lg opacity-90">with non-zero weightage</div>
-            </div>
-
-            <div className="bg-gradient-to-r from-purple-600 to-blue-500 text-white p-6 rounded-xl shadow-lg score-summary-card">
-              <div className="text-lg opacity-90 mb-2">Critical Issues</div>
-              <div className="text-5xl font-bold mb-2">
-                {criticalMetrics.length}
-              </div>
-              <div className="text-lg opacity-90">
-                A-priority metrics need attention
               </div>
             </div>
 
-            <div className="bg-gradient-to-r from-purple-600 to-blue-500 text-white p-6 rounded-xl shadow-lg score-summary-card">
-              <div className="text-lg opacity-90 mb-2">Completion Status</div>
-              <div className="text-5xl font-bold mb-2">
-                {completionPercent}%
-              </div>
-              <div className="text-lg opacity-90">Assessment progress</div>
+            <div className="score-summary-card">
+              <div className="summary-label">Metrics Assessed</div>
+              <div className="summary-value">{nonZeroMetrics}</div>
+              <div className="summary-subtitle">with non-zero weightage</div>
+            </div>
+
+            <div className="score-summary-card">
+              <div className="summary-label">Critical Issues</div>
+              <div className="summary-value">{criticalMetrics.length}</div>
+              <div className="summary-subtitle">A-priority metrics</div>
+            </div>
+
+            <div className="score-summary-card">
+              <div className="summary-label">Completion</div>
+              <div className="summary-value">{completionPercent}%</div>
+              <div className="summary-subtitle">assessment progress</div>
             </div>
           </div>
 
-          <div className="score-sections-grid">
-            <div className="score-section">
-              <div className="bg-white rounded-xl p-6 shadow-lg">
-                <h3 className="text-2xl font-bold mb-5">
-                  🏆 Top Performing Dimensions
-                </h3>
+          {/* Vertical Sections */}
+          <div className="score-vertical-sections">
+            {/* Top Performing Dimensions */}
+            <div className="score-vertical-card">
+              <div className="section-header top-performing">
+                <div className="section-icon">🏆</div>
+                <div className="section-header-content">
+                  <h3 className="section-title">Top Performing Dimensions</h3>
+                  <p className="section-subtitle">Your strongest areas</p>
+                </div>
+              </div>
+
+              <div className="section-content">
                 {top3Dims.map((dim, i) => (
-                  <div key={dim.name} className="mb-4">
-                    <strong className="text-lg">
-                      {i + 1}. {dim.name}
-                    </strong>
-                    <div className="h-5 bg-gray-200 rounded-full overflow-hidden mt-2 shadow-inner">
-                      <div
-                        className="progress-fill h-full flex items-center justify-center text-white text-sm"
-                        style={{ width: `${(dim.score / 5) * 100}%` }}
-                      >
+                  <div key={dim.name} className="dimension-item">
+                    <div className="dimension-rank">{i + 1}</div>
+                    <div className="dimension-info">
+                      <div className="dimension-name">{dim.name}</div>
+                      <div className="dimension-score">
                         {dim.score.toFixed(2)} / 5
+                      </div>
+                    </div>
+                    <div className="dimension-progress">
+                      <div className="dimension-progress-bar">
+                        <div
+                          className="dimension-progress-fill"
+                          style={{ width: `${(dim.score / 5) * 100}%` }}
+                        />
+                      </div>
+                      <div className="dimension-percentage">
+                        {((dim.score / 5) * 100).toFixed(1)}%
                       </div>
                     </div>
                   </div>
@@ -372,22 +471,36 @@ const ScoreDashboard = ({ user }) => {
               </div>
             </div>
 
-            <div className="score-section">
-              <div className="bg-white rounded-xl p-6 shadow-lg">
-                <h3 className="text-2xl font-bold mb-5">
-                  ⚠️ Areas Needing Improvement
-                </h3>
+            {/* Areas Needing Improvement */}
+            <div className="score-vertical-card">
+              <div className="section-header areas-improvement">
+                <div className="section-icon">⚠️</div>
+                <div className="section-header-content">
+                  <h3 className="section-title">Areas Needing Improvement</h3>
+                  <p className="section-subtitle">
+                    Dimensions requiring attention
+                  </p>
+                </div>
+              </div>
+              <div className="section-content">
                 {bottom3Dims.map((dim, i) => (
-                  <div key={dim.name} className="mb-4">
-                    <strong className="text-lg">
-                      {i + 1}. {dim.name}
-                    </strong>
-                    <div className="h-5 bg-gray-200 rounded-full overflow-hidden mt-2 shadow-inner">
-                      <div
-                        className="h-full flex items-center justify-center text-white text-sm bg-gradient-to-r from-red-400 to-red-600"
-                        style={{ width: `${(dim.score / 5) * 100}%` }}
-                      >
+                  <div key={dim.name} className="dimension-item">
+                    <div className="dimension-rank">{i + 1}</div>
+                    <div className="dimension-info">
+                      <div className="dimension-name">{dim.name}</div>
+                      <div className="dimension-score">
                         {dim.score.toFixed(2)} / 5
+                      </div>
+                    </div>
+                    <div className="dimension-progress">
+                      <div className="dimension-progress-bar">
+                        <div
+                          className="dimension-progress-fill"
+                          style={{ width: `${(dim.score / 5) * 100}%` }}
+                        />
+                      </div>
+                      <div className="dimension-percentage">
+                        {((dim.score / 5) * 100).toFixed(1)}%
                       </div>
                     </div>
                   </div>
@@ -395,65 +508,81 @@ const ScoreDashboard = ({ user }) => {
               </div>
             </div>
 
-            <div className="score-section score-section-tall">
-              <div className="bg-white rounded-xl p-6 shadow-lg">
-                <h3 className="text-2xl font-bold mb-5">
-                  🔴 Critical A-Priority Metrics (Bottom 10%)
-                </h3>
-                <p className="mb-5 text-lg">
-                  These essential metrics require immediate attention:
-                </p>
-                {criticalMetrics.slice(0, 10).map((metric) => (
-                  <div
-                    key={metric.key}
-                    className="bg-gradient-to-r from-purple-50 to-transparent border-l-4 border-teal-400 p-5 mb-4 rounded-lg"
-                  >
-                    <h4 className="text-purple-600 font-semibold text-lg mb-2">
-                      {metric.name}
-                    </h4>
-                    <p className="mb-1">
-                      <strong>Current Rating:</strong> {metric.score}/5
-                    </p>
-                    <p>
-                      <strong>Status:</strong>{' '}
-                      <span className="performance-badge badge-critical inline-block px-3 py-1 rounded-full text-sm font-semibold">
-                        Critical
-                      </span>
-                    </p>
+            {/* Critical A-Priority Metrics */}
+            <div className="score-vertical-card">
+              <div className="section-header critical-metrics">
+                <div className="section-icon">🔴</div>
+                <div className="section-header-content">
+                  <h3 className="section-title">Critical Metrics</h3>
+                  <p className="section-subtitle">
+                    Requiring immediate attention
+                  </p>
+                </div>
+              </div>
+              <div className="section-content">
+                {criticalMetrics.slice(0, 5).map((metric) => (
+                  <div key={metric.key} className="critical-metric-card">
+                    <div className="critical-metric-icon">!</div>
+                    <div className="critical-metric-content">
+                      <div className="critical-metric-name">{metric.name}</div>
+                      <div className="critical-metric-details">
+                        <span>Rating: {metric.score.toFixed(2)}/5</span>
+                        <span>Priority: A</span>
+                        {metric.dimension && <span>Dimension: {metric.dimension}</span>}
+                      </div>
+                    </div>
+                    <span className="critical-badge">Critical</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="score-section score-section-tall">
-              <div className="bg-white rounded-xl p-6 shadow-lg">
-                <h3 className="text-2xl font-bold mb-5">
-                  📈 Dimension Breakdown
-                </h3>
+            {/* Dimension Breakdown Chart */}
+            <div className="score-vertical-card">
+              <div className="section-header dimension-breakdown">
+                <div className="section-icon">📈</div>
+                <div className="section-header-content">
+                  <h3 className="section-title">Dimension Breakdown</h3>
+                  <p className="section-subtitle">
+                    Performance across all dimensions (out of 5)
+                  </p>
+                </div>
+              </div>
+              <div className="section-content">
                 <div className="chart-container">
                   <canvas ref={chartRef} />
+                </div>
+                <div className="chart-legend">
+                  <div className="legend-item">
+                    <div className="legend-color" style={{backgroundColor: '#8b5cf6'}}></div>
+                    <span>Dimension Score</span>
+                  </div>
+                  <div className="legend-item">
+                    <div className="legend-color" style={{backgroundColor: '#e2e8f0'}}></div>
+                    <span>Scale: 0-5</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="score-section score-section-full">
-              <div className="bg-white rounded-xl p-6 shadow-lg key-insights">
-                <h3 className="text-2xl font-bold mb-5">
-                  <span role="img" aria-label="Insights">
-                    💡
-                  </span>{' '}
-                  Key Insights
-                </h3>
+            {/* Key Insights */}
+            <div className="score-vertical-card">
+              <div className="section-header">
+                <div className="section-icon">💡</div>
+                <div className="section-header-content">
+                  <h3 className="section-title">Key Insights</h3>
+                  <p className="section-subtitle">Actionable recommendations</p>
+                </div>
+              </div>
+              <div className="section-content">
                 <div className="key-insights-list">
-                  {insights.map((insight) => (
-                    <div key={insight.title} className="key-insight-card">
+                  {insights.slice(0, 4).map((insight, index) => (
+                    <div key={`${insight.title}-${index}`} className="key-insight-card">
                       <div className="key-insight-icon">
                         {getInsightIcon(insight.title)}
                       </div>
                       <div className="key-insight-content">
-                        <div className="key-insight-title">
-                          {insight.title}
-                        </div>
+                        <div className="key-insight-title">{insight.title}</div>
                         <p className="key-insight-text">
                           {insight.description}
                         </p>
@@ -465,13 +594,29 @@ const ScoreDashboard = ({ user }) => {
             </div>
           </div>
 
-          <div className="assessment-dashboard-topbar">
+          {/* Footer */}
+          <div className="dashboard-footer">
             <button
               type="button"
-              className="btn-back-info"
-              onClick={() => navigate('/')}
+              className="btn-back-home"
+              onClick={() => navigate("/")}
             >
-              Back to Home
+              <svg
+                className="btn-icon"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+              >
+                <path
+                  d="M10 12l-4-4 4-4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Back to Dashboard
             </button>
           </div>
         </div>
@@ -481,5 +626,3 @@ const ScoreDashboard = ({ user }) => {
 };
 
 export default ScoreDashboard;
-
-

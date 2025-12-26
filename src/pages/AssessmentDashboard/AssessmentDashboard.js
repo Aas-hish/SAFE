@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -38,43 +38,6 @@ const loadInitialState = () => {
   }
 };
 
-// Function to calculate completion percentage based on state
-const calculateCompletionFromState = (state) => {
-  let totalFields = 0;
-  let completedFields = 0;
-
-  // Count all possible fields
-  Object.entries(SAFE_DATA).forEach(([dimName, kpis]) => {
-    Object.entries(kpis).forEach(([kpiName, metrics]) => {
-      // Add 1 for each rating field
-      metrics.forEach((metric) => {
-        const key = `${dimName}||${kpiName}||${metric.name}`;
-        totalFields += 1; // Rating field
-        if (state.ratings[key]) completedFields += 1;
-        
-        // Priority field (A/B/C)
-        totalFields += 1;
-        if (state.priorities[key]) completedFields += 1;
-      });
-      
-      // Add 1 for KPI weight field
-      const kpiKey = `${dimName}||${kpiName}`;
-      totalFields += 1;
-      if (state.weights.kpis[kpiKey] !== undefined) completedFields += 1;
-      
-      // Add for metrics weights
-      metrics.forEach((metric) => {
-        const metricKey = `${dimName}||${kpiName}||${metric.name}`;
-        totalFields += 1;
-        if (state.weights.metrics[metricKey] !== undefined) completedFields += 1;
-      });
-    });
-  });
-
-  if (totalFields === 0) return 0;
-  return Math.min(Math.round((completedFields / totalFields) * 100), 100);
-};
-
 const AssessmentDashboard = ({ user }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -99,58 +62,44 @@ const AssessmentDashboard = ({ user }) => {
   const assessmentId = assessmentData.id;
   const collectionName = assessmentData.collectionName;
 
-  // Calculate completion percentage - memoized for UI display
+  // Calculate completion percentage - counts ALL fields
   const calculateCompletionPercentage = useMemo(() => {
-    return calculateCompletionFromState(appState);
-  }, [appState]);
+    let totalFields = 0;
+    let completedFields = 0;
 
-  // Save progress to Firestore with debouncing
-  const saveProgress = useCallback(async (state) => {
-    if (loading || isInitialLoadRef.current) return;
-
-    // Save to localStorage immediately
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        ...state,
-        lastUpdated: new Date().toISOString(),
-      }));
-    }
-
-    // Debounce Firestore save
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = setTimeout(async () => {
-      if (!user?.uid || !assessmentId || !collectionName) return;
-
-      try {
-        const assessmentRef = doc(db, 'users', user.uid, collectionName, assessmentId);
-        // Calculate completion percentage for this specific state
-        const completionPercentage = calculateCompletionFromState(state);
-        
-        await updateDoc(assessmentRef, {
-          ratings: state.ratings,
-          priorities: state.priorities,
-          weights: state.weights,
-          completionPercentage: completionPercentage,
-          lastUpdated: new Date().toISOString(),
-        });
-        
-        console.log('Progress saved to Firestore:', {
-          completionPercentage,
-          ratingsCount: Object.keys(state.ratings).length,
-          prioritiesCount: Object.keys(state.priorities).length,
-          weightsCount: {
-            kpis: Object.keys(state.weights.kpis).length,
-            metrics: Object.keys(state.weights.metrics).length
+    Object.entries(SAFE_DATA).forEach(([dimName, kpis]) => {
+      Object.entries(kpis).forEach(([kpiName, metrics]) => {
+        metrics.forEach((metric) => {
+          const key = `${dimName}||${kpiName}||${metric.name}`;
+          
+          // Rating field (1-5)
+          totalFields += 1;
+          if (appState.ratings[key]) completedFields += 1;
+          
+          // Priority field (A/B/C)
+          totalFields += 1;
+          if (appState.priorities[key]) completedFields += 1;
+          
+          // Metric weight field
+          totalFields += 1;
+          if (appState.weights.metrics[key] !== undefined && appState.weights.metrics[key] > 0) {
+            completedFields += 1;
           }
         });
-      } catch (error) {
-        console.error('Error saving progress:', error);
-      }
-    }, 1000); // 1 second debounce
-  }, [user, assessmentId, collectionName, loading]);
+        
+        // KPI weight field
+        const kpiKey = `${dimName}||${kpiName}`;
+        totalFields += 1;
+        if (appState.weights.kpis[kpiKey] !== undefined && appState.weights.kpis[kpiKey] > 0) {
+          completedFields += 1;
+        }
+      });
+    });
+
+    if (totalFields === 0) return 0;
+    const percentage = Math.round((completedFields / totalFields) * 100);
+    return Math.min(percentage, 100);
+  }, [appState.ratings, appState.priorities, appState.weights]);
 
   // Load assessment progress from Firestore on mount
   useEffect(() => {
@@ -175,13 +124,6 @@ const AssessmentDashboard = ({ user }) => {
         
         if (docSnap.exists()) {
           const data = docSnap.data();
-          console.log('Loaded from Firestore:', {
-            ratingsCount: Object.keys(data.ratings || {}).length,
-            prioritiesCount: Object.keys(data.priorities || {}).length,
-            weights: data.weights,
-            completionPercentage: data.completionPercentage
-          });
-          
           // Load saved progress from Firestore
           if (data.ratings || data.priorities || data.weights) {
             setAppState({
@@ -221,16 +163,55 @@ const AssessmentDashboard = ({ user }) => {
       return;
     }
 
-    // Save progress when appState changes
-    saveProgress(appState);
-    
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Save to localStorage immediately (as backup)
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+      }
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+
+    // Save to Firestore with debouncing (wait 1 second after last change)
+    if (user && user.uid && assessmentId && collectionName) {
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          const assessmentRef = doc(
+            db,
+            'users',
+            user.uid,
+            collectionName,
+            assessmentId
+          );
+          
+          // Save completion percentage along with other data
+          await updateDoc(assessmentRef, {
+            ratings: appState.ratings,
+            priorities: appState.priorities,
+            weights: appState.weights,
+            completionPercentage: calculateCompletionPercentage,
+            lastUpdated: new Date(),
+          });
+          
+          console.log('Assessment progress saved to Firestore');
+        } catch (error) {
+          console.error('Error saving assessment progress to Firestore:', error);
+        }
+      }, 1000); // Wait 1 second after last change before saving
+    }
+
     // Cleanup timeout on unmount
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [appState, saveProgress, loading]);
+  }, [appState, user, assessmentId, collectionName, loading, calculateCompletionPercentage]);
 
   const toggleDimension = (index) => {
     setExpandedDimensions((prev) => {
@@ -295,59 +276,45 @@ const AssessmentDashboard = ({ user }) => {
     }));
   };
 
-  // Format the created date with time
+  // Format the created date
   const formatDate = (date) => {
-    if (!date) {
-      console.log('No date provided');
-      return 'N/A';
-    }
-    
+    if (!date) return 'N/A';
     try {
-      console.log('Raw date value:', date);
-      
       // Handle Firestore Timestamp
       let jsDate;
       if (date && typeof date.toDate === 'function') {
         jsDate = date.toDate();
+      } else if (date.seconds) {
+        // Firestore timestamp in format { seconds: 1234567, nanoseconds: 0 }
+        jsDate = new Date(date.seconds * 1000);
       } else if (date instanceof Date) {
         jsDate = date;
       } else if (typeof date === 'string' || typeof date === 'number') {
         jsDate = new Date(date);
-      } else if (date.seconds) {
-        // Handle Firestore timestamp in format { seconds: 1234567, nanoseconds: 0 }
-        jsDate = new Date(date.seconds * 1000);
       } else {
-        console.log('Unknown date format, using current date');
-        jsDate = new Date();
-      }
-      
-      if (isNaN(jsDate.getTime())) {
-        console.log('Invalid date:', date);
         return 'N/A';
       }
       
-      // Format date as "26 Dec 2025, 1:30 PM" (more compact format)
-      const datePart = jsDate.toLocaleDateString('en-US', {
+      if (isNaN(jsDate.getTime())) return 'N/A';
+      
+      // Only show date (e.g., "26 Dec 2025")
+      return jsDate.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
         day: 'numeric'
       });
-     
-      const formattedDate = `${datePart}`;
-      console.log('Formatted date:', formattedDate);
-      return formattedDate;
     } catch (e) {
-      console.error('Error formatting date:', e);
       return 'N/A';
     }
   };
 
-  const handleViewDashboard = () => {
-    navigate('/');
-  };
+ const handleViewDashboard = () => {
+  // Navigate to the score dashboard with the current assessment's collectionName and id
+  navigate(`/score-dashboard/${collectionName}/${assessmentId}`);
+};
 
   const handleBackToInfo = () => {
-    navigate('/assessment');
+    navigate('/');
   };
 
   let dimIndex = 0;
@@ -384,36 +351,27 @@ const AssessmentDashboard = ({ user }) => {
                   width="32"
                   height="36"
                   rx="2"
-                  fill="#3b82f6"
-                  stroke="#2563eb"
+                  fill="#8b5cf6"
+                  stroke="#7c3aed"
                   strokeWidth="2"
                 />
                 <line
-                  x1="14"
-                  y1="14"
-                  x2="34"
-                  y2="14"
-                  stroke="#ffffff"
+                  x1="8"
+                  y1="16"
+                  x2="40"
+                  y2="16"
+                  stroke="white"
                   strokeWidth="2"
                   strokeLinecap="round"
                 />
-                <line
-                  x1="14"
-                  y1="20"
-                  x2="34"
-                  y2="20"
-                  stroke="#ffffff"
+                <circle cx="24" cy="12" r="2" fill="white" />
+                <circle cx="30" cy="12" r="2" fill="white" />
+                <path
+                  d="M16 24L24 30L32 24"
+                  stroke="white"
                   strokeWidth="2"
                   strokeLinecap="round"
-                />
-                <line
-                  x1="14"
-                  y1="26"
-                  x2="28"
-                  y2="26"
-                  stroke="#ffffff"
-                  strokeWidth="2"
-                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
               </svg>
             </div>
@@ -454,7 +412,7 @@ const AssessmentDashboard = ({ user }) => {
             <div className="info-item created">
               <span className="info-label">Created:</span>
               <span className="info-value">
-                {formatDate(assessmentData.createdAt || new Date())}
+                {formatDate(assessmentData.createdAt)}
               </span>
             </div>
           </div>
@@ -528,17 +486,31 @@ const AssessmentDashboard = ({ user }) => {
           </div>
 
           <div className="assessment-dashboard-main">
-            <div className="bg-white rounded-xl p-6 mb-5 shadow-lg">
-              <h2 className="text-purple-600 text-3xl font-bold mb-5">
-                📊 Age-Friendliness Assessment
+            <div className="dashboard-card">
+              <h2 className="dashboard-title">
+                Age-Friendliness Assessment
               </h2>
 
-              <div className="h-8 bg-gray-200 rounded-full overflow-hidden mb-5 shadow-inner">
-                <div
-                  className="progress-fill h-full flex items-center justify-center text-black font-bold"
-                  style={{ width: `${calculateCompletionPercentage}%` }}
-                >
-                  {calculateCompletionPercentage}% Complete
+              {/* Minimal Progress Bar */}
+              <div className="completion-section">
+                <div className="completion-header">
+                  <span className="completion-label">Assessment Progress</span>
+                  <span className="completion-percentage">{calculateCompletionPercentage}%</span>
+                </div>
+                
+                <div className="completion-bar-container">
+                  <div className="completion-bar-track">
+                    <div
+                      className="completion-bar-fill"
+                      style={{ width: `${calculateCompletionPercentage}%` }}
+                    />
+                  </div>
+                </div>
+                
+                <div className="completion-footer">
+                  <span className="completion-status">
+                    {calculateCompletionPercentage < 100 ? 'Complete all fields to finish' : 'Assessment completed'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -565,7 +537,7 @@ const AssessmentDashboard = ({ user }) => {
                   className="bg-white rounded-lg overflow-hidden shadow-md mb-5 border-l-4 border-purple-600"
                 >
                   <div
-                    className="dimension-header bg-gradient-to-r from-purple-600 to-blue-500 text-white p-5 cursor-pointer flex justify-between items-center hover:brightness-110 transition-all"
+                    className="dimension-header bg-gradient-to-r from-purple-600 to-blue-500 text-white p-5 cursor-pointer flex justify-between items-center hover:brightness-110 transition-all rounded-lg"
                     onClick={() => toggleDimension(currentDimIndex)}
                   >
                     <h3 className="text-white text-xl font-semibold m-0">
@@ -652,118 +624,120 @@ const AssessmentDashboard = ({ user }) => {
                       return (
                         <div
                           key={`${dimName}-${kpiName}`}
-                          className="mb-6 border-l-4 border-teal-400 bg-white p-4 rounded-lg"
+                          className="mb-6 bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200"
                         >
-                          <div className="font-semibold text-white bg-blue-500 p-3 -m-4 mb-4 rounded-t-lg text-lg">
+                          <div className="font-semibold text-white bg-gradient-to-r from-blue-500 to-teal-400 p-4 text-lg rounded-t-xl">
                             {kpiName}
                           </div>
 
-                          {metrics.map((metric) => {
-                            const metricKey = `${dimName}||${kpiName}||${metric.name}`;
-                            const currentRating =
-                              appState.ratings[metricKey] || 3;
-                            const currentPriority =
-                              appState.priorities[metricKey] ||
-                              metric.priority;
-                            const currentWeight =
-                              appState.weights.metrics[metricKey] ||
-                              100 / metrics.length;
+                          <div className="p-5">
+                            {metrics.map((metric) => {
+                              const metricKey = `${dimName}||${kpiName}||${metric.name}`;
+                              const currentRating =
+                                appState.ratings[metricKey] || 3;
+                              const currentPriority =
+                                appState.priorities[metricKey] ||
+                                metric.priority;
+                              const currentWeight =
+                                appState.weights.metrics[metricKey] ||
+                                100 / metrics.length;
 
-                            const ratingLabels = {
-                              1: 'Poor',
-                              2: 'Bad',
-                              3: 'Good',
-                              4: 'V.Good',
-                              5: 'Excellent',
-                            };
+                              const ratingLabels = {
+                                1: 'Poor',
+                                2: 'Bad',
+                                3: 'Good',
+                                4: 'V.Good',
+                                5: 'Excellent',
+                              };
 
-                            return (
-                              <div
-                                key={metricKey}
-                                className="metric-row"
+                              return (
+                                <div
+                                  key={metricKey}
+                                  className="metric-row"
+                                >
+                                  <div className={`priority-badge priority-${currentPriority}`}>
+                                    {currentPriority}
+                                  </div>
+
+                                  <div className="metric-name">
+                                    {metric.name}
+                                  </div>
+
+                                  <div className={`rating-badge rating-${currentRating}`}>
+                                    {ratingLabels[currentRating]}
+                                  </div>
+
+                                  <div className="metric-field">
+                                    <label>Priority</label>
+                                    <select
+                                      value={currentPriority}
+                                      onChange={(e) =>
+                                        updatePriority(metricKey, e.target.value)
+                                      }
+                                      className="select-compact"
+                                    >
+                                      <option value="A">A - Essential</option>
+                                      <option value="B">B - Required</option>
+                                      <option value="C">C - Desired</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="metric-field">
+                                    <label>Rating</label>
+                                    <select
+                                      value={currentRating}
+                                      onChange={(e) =>
+                                        updateRatingWithBadge(
+                                          metricKey,
+                                          e.target.value
+                                        )
+                                      }
+                                      className="select-compact"
+                                    >
+                                      <option value="1">1 - Poor</option>
+                                      <option value="2">2 - Bad</option>
+                                      <option value="3">3 - Good</option>
+                                      <option value="4">4 - Very Good</option>
+                                      <option value="5">5 - Excellent</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="metric-field">
+                                    <label>Weight %</label>
+                                    <input
+                                      type="number"
+                                      value={currentWeight.toFixed(2)}
+                                      min="0"
+                                      max="100"
+                                      step="0.1"
+                                      className="input-compact"
+                                      onChange={(e) =>
+                                        updateMetricWeightNoCollapse(
+                                          metricKey,
+                                          e.target.value
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-300">
+                              <strong>Metric Weightages Total:</strong>
+                              <span
+                                className={`weightage-validation ${
+                                  metricsValid
+                                    ? 'weightage-valid'
+                                    : 'weightage-invalid'
+                                }`}
                               >
-                                <div className={`priority-badge priority-${currentPriority}`}>
-                                  {currentPriority}
-                                </div>
-
-                                <div className="metric-name">
-                                  {metric.name}
-                                </div>
-
-                                <div className={`rating-badge rating-${currentRating}`}>
-                                  {ratingLabels[currentRating]}
-                                </div>
-
-                                <div className="metric-field">
-                                  <label>Priority</label>
-                                  <select
-                                    value={currentPriority}
-                                    onChange={(e) =>
-                                      updatePriority(metricKey, e.target.value)
-                                    }
-                                    className="select-compact"
-                                  >
-                                    <option value="A">A - Essential</option>
-                                    <option value="B">B - Required</option>
-                                    <option value="C">C - Desired</option>
-                                  </select>
-                                </div>
-
-                                <div className="metric-field">
-                                  <label>Rating</label>
-                                  <select
-                                    value={currentRating}
-                                    onChange={(e) =>
-                                      updateRatingWithBadge(
-                                        metricKey,
-                                        e.target.value
-                                      )
-                                    }
-                                    className="select-compact"
-                                  >
-                                    <option value="1">1 - Poor</option>
-                                    <option value="2">2 - Bad</option>
-                                    <option value="3">3 - Good</option>
-                                    <option value="4">4 - Very Good</option>
-                                    <option value="5">5 - Excellent</option>
-                                  </select>
-                                </div>
-
-                                <div className="metric-field">
-                                  <label>Weight %</label>
-                                  <input
-                                    type="number"
-                                    value={currentWeight.toFixed(2)}
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                    className="input-compact"
-                                    onChange={(e) =>
-                                      updateMetricWeightNoCollapse(
-                                        metricKey,
-                                        e.target.value
-                                      )
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-
-                          <div className="mt-4 p-4 bg-white rounded-lg border-2 border-gray-200">
-                            <strong>Metric Weightages Total:</strong>
-                            <span
-                              className={`weightage-validation ${
-                                metricsValid
-                                  ? 'weightage-valid'
-                                  : 'weightage-invalid'
-                              }`}
-                            >
-                              {metricWeightSum.toFixed(2)}%{' '}
-                              {metricsValid
-                                ? '✓'
-                                : '✗ Must equal 100%'}
-                            </span>
+                                {metricWeightSum.toFixed(2)}%{' '}
+                                {metricsValid
+                                  ? '✓'
+                                  : '✗ Must equal 100%'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       );

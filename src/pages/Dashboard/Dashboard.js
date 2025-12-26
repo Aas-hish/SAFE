@@ -65,8 +65,12 @@ const Dashboard = ({ user }) => {
             
             if (assessmentSnap.exists()) {
               const data = assessmentSnap.data();
-              let completionPercentage = 0;
-              if (data.ratings) {
+              
+              // Get completionPercentage directly from Firestore if it exists
+              let completionPercentage = data.completionPercentage || 0;
+              
+              // If not stored in Firestore or is 0, calculate it as fallback
+              if ((completionPercentage === 0 || completionPercentage === undefined) && data.ratings) {
                 completionPercentage = calculateCompletionFromState({
                   ratings: data.ratings || {},
                   priorities: data.priorities || {},
@@ -110,8 +114,11 @@ const Dashboard = ({ user }) => {
                 const data = docSnap.data();
                 // Only include if created by this user
                 if (data.createdBy === user.uid) {
-                  let completionPercentage = 0;
-                  if (data.ratings) {
+                  // Get completionPercentage directly from Firestore
+                  let completionPercentage = data.completionPercentage || 0;
+                  
+                  // Fallback calculation if not stored
+                  if ((completionPercentage === 0 || completionPercentage === undefined) && data.ratings) {
                     completionPercentage = calculateCompletionFromState({
                       ratings: data.ratings || {},
                       priorities: data.priorities || {},
@@ -310,7 +317,6 @@ const Dashboard = ({ user }) => {
                   Get Started →
                 </button>
               </div>
-
             </div>
           </section>
 
@@ -405,4 +411,3 @@ const Dashboard = ({ user }) => {
 };
 
 export default Dashboard;
-
