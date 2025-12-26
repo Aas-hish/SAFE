@@ -25,6 +25,7 @@ const ScoreDashboard = ({ user }) => {
     const fetchAssessment = async () => {
       try {
         if (!user || !user.uid) return;
+        // Use collectionName from URL params (handles both new 'assessments' and old city-specific collections)
         const assessmentRef = doc(
           db,
           'users',

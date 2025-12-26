@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 import { SAFE_DATA } from '../../data';
 import './AssessmentDashboard.css';
 
@@ -36,11 +38,51 @@ const loadInitialState = () => {
   }
 };
 
+// Function to calculate completion percentage based on state
+const calculateCompletionFromState = (state) => {
+  let totalFields = 0;
+  let completedFields = 0;
+
+  // Count all possible fields
+  Object.entries(SAFE_DATA).forEach(([dimName, kpis]) => {
+    Object.entries(kpis).forEach(([kpiName, metrics]) => {
+      // Add 1 for each rating field
+      metrics.forEach((metric) => {
+        const key = `${dimName}||${kpiName}||${metric.name}`;
+        totalFields += 1; // Rating field
+        if (state.ratings[key]) completedFields += 1;
+        
+        // Priority field (A/B/C)
+        totalFields += 1;
+        if (state.priorities[key]) completedFields += 1;
+      });
+      
+      // Add 1 for KPI weight field
+      const kpiKey = `${dimName}||${kpiName}`;
+      totalFields += 1;
+      if (state.weights.kpis[kpiKey] !== undefined) completedFields += 1;
+      
+      // Add for metrics weights
+      metrics.forEach((metric) => {
+        const metricKey = `${dimName}||${kpiName}||${metric.name}`;
+        totalFields += 1;
+        if (state.weights.metrics[metricKey] !== undefined) completedFields += 1;
+      });
+    });
+  });
+
+  if (totalFields === 0) return 0;
+  return Math.min(Math.round((completedFields / totalFields) * 100), 100);
+};
+
 const AssessmentDashboard = ({ user }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [appState, setAppState] = useState(loadInitialState);
+  const [appState, setAppState] = useState(createEmptyState);
   const [expandedDimensions, setExpandedDimensions] = useState(() => new Set());
+  const [loading, setLoading] = useState(true);
+  const saveTimeoutRef = useRef(null);
+  const isInitialLoadRef = useRef(true);
   
   // Get assessment data from navigation state or location state
   const assessmentData = location.state?.assessmentData || {
@@ -50,36 +92,145 @@ const AssessmentDashboard = ({ user }) => {
     borough: 'N/A',
     ward: 'N/A',
     createdAt: new Date(),
+    id: null,
+    collectionName: null,
   };
 
-  // Persist assessment state in localStorage
-  useEffect(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
-      }
-    } catch {
-      // ignore storage errors
-    }
+  const assessmentId = assessmentData.id;
+  const collectionName = assessmentData.collectionName;
+
+  // Calculate completion percentage - memoized for UI display
+  const calculateCompletionPercentage = useMemo(() => {
+    return calculateCompletionFromState(appState);
   }, [appState]);
 
-  const calculateCompletionPercentage = useMemo(() => {
-    let totalMetrics = 0;
-    let ratedMetrics = 0;
+  // Save progress to Firestore with debouncing
+  const saveProgress = useCallback(async (state) => {
+    if (loading || isInitialLoadRef.current) return;
 
-    Object.entries(SAFE_DATA).forEach(([dimName, kpis]) => {
-      Object.entries(kpis).forEach(([kpiName, metrics]) => {
-        metrics.forEach((metric) => {
-          const key = `${dimName}||${kpiName}||${metric.name}`;
-          totalMetrics += 1;
-          if (appState.ratings[key]) ratedMetrics += 1;
+    // Save to localStorage immediately
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        ...state,
+        lastUpdated: new Date().toISOString(),
+      }));
+    }
+
+    // Debounce Firestore save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (!user?.uid || !assessmentId || !collectionName) return;
+
+      try {
+        const assessmentRef = doc(db, 'users', user.uid, collectionName, assessmentId);
+        // Calculate completion percentage for this specific state
+        const completionPercentage = calculateCompletionFromState(state);
+        
+        await updateDoc(assessmentRef, {
+          ratings: state.ratings,
+          priorities: state.priorities,
+          weights: state.weights,
+          completionPercentage: completionPercentage,
+          lastUpdated: new Date().toISOString(),
         });
-      });
-    });
+        
+        console.log('Progress saved to Firestore:', {
+          completionPercentage,
+          ratingsCount: Object.keys(state.ratings).length,
+          prioritiesCount: Object.keys(state.priorities).length,
+          weightsCount: {
+            kpis: Object.keys(state.weights.kpis).length,
+            metrics: Object.keys(state.weights.metrics).length
+          }
+        });
+      } catch (error) {
+        console.error('Error saving progress:', error);
+      }
+    }, 1000); // 1 second debounce
+  }, [user, assessmentId, collectionName, loading]);
 
-    if (totalMetrics === 0) return 0;
-    return Math.round((ratedMetrics / totalMetrics) * 100);
-  }, [appState.ratings]);
+  // Load assessment progress from Firestore on mount
+  useEffect(() => {
+    const loadAssessmentProgress = async () => {
+      if (!user || !user.uid || !assessmentId || !collectionName) {
+        // Fallback to localStorage if no Firestore data available
+        const localState = loadInitialState();
+        setAppState(localState);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const assessmentRef = doc(
+          db,
+          'users',
+          user.uid,
+          collectionName,
+          assessmentId
+        );
+        const docSnap = await getDoc(assessmentRef);
+        
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          console.log('Loaded from Firestore:', {
+            ratingsCount: Object.keys(data.ratings || {}).length,
+            prioritiesCount: Object.keys(data.priorities || {}).length,
+            weights: data.weights,
+            completionPercentage: data.completionPercentage
+          });
+          
+          // Load saved progress from Firestore
+          if (data.ratings || data.priorities || data.weights) {
+            setAppState({
+              ratings: data.ratings || {},
+              priorities: data.priorities || {},
+              weights: {
+                kpis: data.weights?.kpis || {},
+                metrics: data.weights?.metrics || {},
+              },
+            });
+          } else {
+            // No saved progress, use empty state
+            setAppState(createEmptyState());
+          }
+        } else {
+          // Document doesn't exist, use empty state
+          setAppState(createEmptyState());
+        }
+      } catch (error) {
+        console.error('Error loading assessment progress:', error);
+        // Fallback to localStorage on error
+        const localState = loadInitialState();
+        setAppState(localState);
+      } finally {
+        setLoading(false);
+        isInitialLoadRef.current = false;
+      }
+    };
+
+    loadAssessmentProgress();
+  }, [user, assessmentId, collectionName]);
+
+  // Auto-save to Firestore with debouncing
+  useEffect(() => {
+    // Skip saving on initial load
+    if (isInitialLoadRef.current || loading) {
+      return;
+    }
+
+    // Save progress when appState changes
+    saveProgress(appState);
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [appState, saveProgress, loading]);
 
   const toggleDimension = (index) => {
     setExpandedDimensions((prev) => {
@@ -144,21 +295,49 @@ const AssessmentDashboard = ({ user }) => {
     }));
   };
 
-  // Format the created date
+  // Format the created date with time
   const formatDate = (date) => {
-    if (!date) return 'N/A';
+    if (!date) {
+      console.log('No date provided');
+      return 'N/A';
+    }
+    
     try {
+      console.log('Raw date value:', date);
+      
       // Handle Firestore Timestamp
-      const d = date.toDate ? date.toDate() : (date instanceof Date ? date : new Date(date));
-      if (isNaN(d.getTime())) return 'N/A';
-      return d.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
+      let jsDate;
+      if (date && typeof date.toDate === 'function') {
+        jsDate = date.toDate();
+      } else if (date instanceof Date) {
+        jsDate = date;
+      } else if (typeof date === 'string' || typeof date === 'number') {
+        jsDate = new Date(date);
+      } else if (date.seconds) {
+        // Handle Firestore timestamp in format { seconds: 1234567, nanoseconds: 0 }
+        jsDate = new Date(date.seconds * 1000);
+      } else {
+        console.log('Unknown date format, using current date');
+        jsDate = new Date();
+      }
+      
+      if (isNaN(jsDate.getTime())) {
+        console.log('Invalid date:', date);
+        return 'N/A';
+      }
+      
+      // Format date as "26 Dec 2025, 1:30 PM" (more compact format)
+      const datePart = jsDate.toLocaleDateString('en-US', {
         year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+        month: 'short',
+        day: 'numeric'
       });
+     
+      const formattedDate = `${datePart}`;
+      console.log('Formatted date:', formattedDate);
+      return formattedDate;
     } catch (e) {
+      console.error('Error formatting date:', e);
       return 'N/A';
     }
   };
@@ -172,6 +351,25 @@ const AssessmentDashboard = ({ user }) => {
   };
 
   let dimIndex = 0;
+
+  // Show loading indicator while loading assessment progress
+  if (loading) {
+    return (
+      <div className="assessment-dashboard">
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          flexDirection: 'column',
+          gap: '1rem'
+        }}>
+          <div style={{ fontSize: '1.5rem' }}>Loading your assessment...</div>
+          <div style={{ fontSize: '0.9rem', color: '#666' }}>Please wait while we restore your progress</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="assessment-dashboard">
@@ -256,7 +454,7 @@ const AssessmentDashboard = ({ user }) => {
             <div className="info-item created">
               <span className="info-label">Created:</span>
               <span className="info-value">
-                {formatDate(assessmentData.createdAt)}
+                {formatDate(assessmentData.createdAt || new Date())}
               </span>
             </div>
           </div>
@@ -337,7 +535,7 @@ const AssessmentDashboard = ({ user }) => {
 
               <div className="h-8 bg-gray-200 rounded-full overflow-hidden mb-5 shadow-inner">
                 <div
-                  className="progress-fill h-full flex items-center justify-center text-white font-bold"
+                  className="progress-fill h-full flex items-center justify-center text-black font-bold"
                   style={{ width: `${calculateCompletionPercentage}%` }}
                 >
                   {calculateCompletionPercentage}% Complete
@@ -582,4 +780,3 @@ const AssessmentDashboard = ({ user }) => {
 };
 
 export default AssessmentDashboard;
-

@@ -72,12 +72,28 @@ const Assessment = ({ user }) => {
       
       console.log('Assessment saved with ID:', docRef.id);
       
+      // Create index entry for easy querying in Dashboard
+      try {
+        const indexRef = collection(db, 'users', user.uid, 'assessments_index');
+        await addDoc(indexRef, {
+          assessmentId: docRef.id,
+          collectionName: collectionName,
+          createdAt: serverTimestamp(),
+          city: cityName,
+          status: 'draft',
+        });
+      } catch (indexError) {
+        // Index creation is optional, don't fail if it errors
+        console.warn('Could not create assessment index:', indexError);
+      }
+      
       // Navigate to assessment dashboard with the assessment data
       navigate('/assessment-dashboard', {
         state: {
           assessmentData: {
             ...assessmentData,
             id: docRef.id,
+            collectionName: collectionName, // Pass collection name for Firestore operations
             createdAt: new Date(), // Convert timestamp to Date for display
           },
         },

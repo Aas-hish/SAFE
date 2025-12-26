@@ -18,6 +18,12 @@ service cloud.firestore {
           && request.resource.data.userLabel is string;
       }
       
+      // Assessments index subcollection
+      match /assessments_index/{indexId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create, update, delete: if request.auth != null && request.auth.uid == userId;
+      }
+      
       // Assessments subcollections - dynamic pattern: assessments_{cityname}
       // This catches all subcollections except 'activities' (which is handled above)
       // Validates assessment structure by checking for assessment-specific fields
