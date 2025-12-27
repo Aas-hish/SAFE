@@ -91,28 +91,58 @@ export function getPerformanceCategory(overallScore) {
     return { name: 'Excellent', class: 'badge-excellent' };
   }
   if (overallScore >= 3.5) {
-    return { name: 'Good', class: 'badge-good' };
+    return { name: 'Gold', class: 'badge-good' };
   }
   if (overallScore >= 2.5) {
-    return { name: 'Needs Improvement', class: 'badge-warning' };
+    return { name: 'Bronze', class: 'badge-warning' };
   }
   return { name: 'Critical', class: 'badge-critical' };
 }
 
 export function getCriticalMetrics(appState) {
+  if (!appState?.priorities) {
+    console.log('No priorities found in appState');
+    return [];
+  }
+
+  console.log('All priorities:', appState.priorities);
+  
+  // Get all metrics with priority 'A' and extract detailed information
   const aPriorityMetrics = Object.entries(appState.priorities)
-    .filter(([, priority]) => priority === 'A')
-    .map(([key]) => ({
-      key,
-      score: appState.ratings[key] || 0,
-      name: key.split('||')[2] || key,
-    }))
-    .sort((a, b) => a.score - b.score);
+    .filter(([key, priority]) => {
+      console.log(`Checking ${key}: ${priority}`);
+      return priority === 'A';
+    })
+    .map(([key]) => {
+      // Split the key into parts: dimension, kpi, metric
+      const [dimension, kpi, ...metricParts] = key.split('||');
+      const metric = metricParts.join('||'); // In case metric name contains '||'
+      const rating = appState.ratings?.[key] || 0;
+      
+      return {
+        key,
+        dimension,
+        kpi,
+        metric,
+        score: rating,
+        rating: rating, // Keep both score and rating for compatibility
+        name: metric,   // For backward compatibility
+        // Add formatted strings for display
+        dimensionName: dimension?.replace(/_/g, ' ') || 'Unknown Dimension',
+        kpiName: kpi?.replace(/_/g, ' ') || 'Unknown KPI',
+        metricName: metric?.replace(/_/g, ' ') || 'Unknown Metric'
+      };
+    })
+    .sort((a, b) => a.score - b.score); // Sort by score (lowest first)
 
-  const bottom10Percent = Math.ceil(aPriorityMetrics.length * 0.1);
-  return aPriorityMetrics.slice(0, bottom10Percent || 0);
+  console.log('A priority metrics with details:', aPriorityMetrics);
+  
+  // Return all A-priority metrics (or a subset if needed)
+  // Remove the bottom 10% filter to show all critical metrics
+  // const bottom10Percent = Math.ceil(aPriorityMetrics.length * 0.1);
+  // return aPriorityMetrics.slice(0, bottom10Percent || 0);
+  return aPriorityMetrics;
 }
-
 export function generateInsights(scores) {
   const insights = [];
   const dimensionsArray = Object.entries(scores.dimensions).map(

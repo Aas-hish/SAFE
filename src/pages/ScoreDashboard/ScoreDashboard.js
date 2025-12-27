@@ -45,6 +45,7 @@ const ScoreDashboard = ({ user }) => {
           borough: data.borough,
           ward: data.ward,
           createdAt: data.createdAt,
+          completionPercentage: data.completionPercentage, // Fetch from Firestore
         });
         setAppState(
           data.ratings && data.priorities && data.weights
@@ -70,7 +71,10 @@ const ScoreDashboard = ({ user }) => {
       return null;
     }
     const scores = calculateScoresFromState(appState);
-    const completionPercent = calculateCompletionFromState(appState);
+    // Use completionPercentage from Firestore (meta), fallback to calculation if not available
+    const completionPercent = meta?.completionPercentage !== undefined 
+      ? meta.completionPercentage 
+      : calculateCompletionFromState(appState);
     const nonZeroMetrics = countNonZeroWeightageMetrics(appState);
     const performanceCategory = getPerformanceCategory(scores.overall);
     const criticalMetrics = getCriticalMetrics(appState);
@@ -83,7 +87,7 @@ const ScoreDashboard = ({ user }) => {
       criticalMetrics,
       insights,
     };
-  }, [appState]);
+  }, [appState, meta]);
 
   useEffect(() => {
     if (!computed || !chartRef.current) return;
@@ -242,17 +246,7 @@ const ScoreDashboard = ({ user }) => {
     }
   };
 
-  // Add custom header CSS styles
-  const headerStyles = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '24px 32px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    color: 'white',
-    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-    marginBottom: '24px',
-  };
+
 
   if (loading) {
     return (
@@ -520,15 +514,15 @@ const ScoreDashboard = ({ user }) => {
                 </div>
               </div>
               <div className="section-content">
-                {criticalMetrics.slice(0, 5).map((metric) => (
+                {criticalMetrics.map((metric, index) => (
                   <div key={metric.key} className="critical-metric-card">
-                    <div className="critical-metric-icon">!</div>
+                    <div className="critical-metric-icon">{index + 1}</div>
                     <div className="critical-metric-content">
-                      <div className="critical-metric-name">{metric.name}</div>
+                      <div className="critical-metric-name">{metric.metricName}</div>
                       <div className="critical-metric-details">
-                        <span>Rating: {metric.score.toFixed(2)}/5</span>
-                        <span>Priority: A</span>
-                        {metric.dimension && <span>Dimension: {metric.dimension}</span>}
+                        <span>Dimension: {metric.dimensionName}</span>
+                        <span>KPI: {metric.kpiName}</span>
+                        <span>Rating: {metric.rating.toFixed(1)}/5</span>
                       </div>
                     </div>
                     <span className="critical-badge">Critical</span>
@@ -596,6 +590,57 @@ const ScoreDashboard = ({ user }) => {
 
           {/* Footer */}
           <div className="dashboard-footer">
+            <div className="footer-buttons-group">
+              <button
+                type="button"
+                className="btn-view-comparison"
+                onClick={() => {
+                  // TODO: Implement view comparison functionality
+                  alert('View Comparison feature coming soon!');
+                }}
+              >
+                <svg
+                  className="btn-icon"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                >
+                  <path
+                    d="M8 2L2 8l6 6M14 2L8 8l6 6"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                View Comparison
+              </button>
+              <button
+                type="button"
+                className="btn-generate-result"
+                onClick={() => {
+                  navigate(`/results/${collectionName}/${assessmentId}`);
+                }}
+              >
+                <svg
+                  className="btn-icon"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                >
+                  <path
+                    d="M14 2H2a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1V3a1 1 0 00-1-1zM5 8h6M8 5v6"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Generate Result
+              </button>
+            </div>
             <button
               type="button"
               className="btn-back-home"

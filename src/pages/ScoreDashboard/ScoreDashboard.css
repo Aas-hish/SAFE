@@ -405,6 +405,7 @@
   flex: 1;
   min-width: 0;
   text-align: left;
+  padding-left: 16px; /* Add some left padding */
 }
 
 .dimension-name {
@@ -460,16 +461,29 @@
   height: 100%;
   border-radius: 4px;
   transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Default gradient that will be overridden by specific classes */
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
 }
 
+/* Override for top performing dimensions */
 .top-performing .dimension-progress-fill {
   background: linear-gradient(90deg, #10b981, #34d399);
   box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 }
 
+/* Override for areas needing improvement */
 .areas-improvement .dimension-progress-fill {
   background: linear-gradient(90deg, #f59e0b, #fbbf24);
   box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+/* Ensure 0% progress shows as completely white with no fill */
+.dimension-progress-fill[style*="0%"] {
+  min-width: 0;
+  width: 0% !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .dimension-percentage {
@@ -581,10 +595,23 @@
 
 /* Chart Container - Enhanced */
 .dimension-breakdown .chart-container {
-  height: 400px;
+  height: 500px; /* Increased height */
   width: 100%;
   position: relative;
   padding: 16px 0;
+  margin: 20px 0;
+}
+
+/* Align chart text to the left */
+.dimension-breakdown .chartjs-size-monitor,
+.dimension-breakdown canvas {
+  margin-left: 0;
+  text-align: left;
+}
+
+/* Ensure chart labels are left-aligned */
+.dimension-breakdown .chartjs-render-monitor {
+  text-align: left !important;
 }
 
 /* Chart Legend */
@@ -687,10 +714,53 @@
 
 /* Footer */
 .dashboard-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 48px;
   padding-top: 32px;
   border-top: 1px solid #e2e8f0;
-  text-align: center;
+}
+
+.footer-buttons-group {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-view-comparison,
+.btn-generate-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-view-comparison {
+  background: #6366f1;
+  color: white;
+}
+
+.btn-view-comparison:hover {
+  background: #4f46e5;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.btn-generate-result {
+  background: #8b5cf6;
+  color: white;
+}
+
+.btn-generate-result:hover {
+  background: #7c3aed;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 }
 
 .btn-back-home {
@@ -890,7 +960,7 @@
   }
   
   .dimension-breakdown .chart-container {
-    height: 350px;
+    height: 450px;
   }
   
   .chart-legend {
@@ -921,7 +991,7 @@
 
 @media (max-width: 480px) {
   .dimension-breakdown .chart-container {
-    height: 300px;
+    height: 400px;
   }
   
   .logo-container {

@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import Assessment from './pages/Assessment/Assessment';
 import AssessmentDashboard from './pages/AssessmentDashboard/AssessmentDashboard';
 import ScoreDashboard from './pages/ScoreDashboard/ScoreDashboard';
+import Results from './pages/Results/Results';
 
 function App() {
   const [user, setUser] = useState(undefined);
@@ -81,6 +82,12 @@ function App() {
           path="/score-dashboard/:collectionName/:assessmentId"
           element={(
             user ? <ScoreDashboard user={user} /> : <Navigate to="/login" replace />
+          )}
+        />
+        <Route
+          path="/results/:collectionName/:assessmentId"
+          element={(
+            user ? <Results user={user} /> : <Navigate to="/login" replace />
           )}
         />
         <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />
